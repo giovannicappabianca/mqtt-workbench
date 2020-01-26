@@ -1,0 +1,6 @@
+{
+	"broker" : "mqtt.eclipse.org",
+	"clientId":"01",
+	"logging":"INFO"
+}
+	
