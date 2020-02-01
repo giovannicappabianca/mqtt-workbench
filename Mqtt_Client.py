@@ -73,7 +73,7 @@ class MqttClient(object):
     
         self.client.loop_start()
         self.client.connect(self.broker)    
-        while not self.client.connected_flag and not client.bad_connection_flag: 
+        while not self.client.connected_flag and not self.client.bad_connection_flag: 
             self.logger.info("Trying to connect")
             time.sleep(1)
         if self.client.bad_connection_flag:
