@@ -1,14 +1,12 @@
 import paho.mqtt.client as mqtt 
 import json 
-import logging, time
+import logging, time, threading
+import sched, datetime
 
 class MqttClient(object):
     def __init__(self):
         # read from json file broker and client id
-        with open('config.json') as f:
-            data = json.load(f)
-            self.broker = data["broker"]
-            self.clientId = data["clientId"]
+        self._set_parameters()
         #building logger
         self.logger = self.__manageLogging()
         #building client
@@ -20,6 +18,12 @@ class MqttClient(object):
         self.client.on_message=self.on_message     
         self.client.on_subscribe=self.on_subscribe
         self.client.on_disconnect = self.on_disconnect
+        self.client.on_log = self.on_log
+        #scheduling auto update
+        self.scheduler = sched.scheduler(time.time, time.sleep)
+        self._setup(self.interval, self._set_parameters)
+        self.x = threading.Thread(target=self._run_schedule(), args=(1,), daemon=True)
+        self.x.start()
         
     def __manageLogging(self):
         logger = logging.getLogger('mqtt_connection')
@@ -59,10 +63,13 @@ class MqttClient(object):
         self.logger.info(mid)
     
     def on_subscribe(self, client, userdata, mid, granted_qos):  # subscribe to mqtt broker
-        self.logger.info("Subscribed %s", userdata)
+        self.logger.info("Subscribed %s", mid)
 
     def on_message(self, client, userdata, message):  # get message from mqtt broker 
-        self.logger.info(("New message received: %s", str(message.payload.decode("utf-8"))))
+        self.logger.info("New message received: %s", str(message.payload.decode("utf-8"))) 
+        print("message topic=",message.topic)
+        print("message qos=",message.qos)
+        print("message retain flag=",message.retain)
 
     def on_disconnect(self, client, userdata, rc):  # disconnect to mqtt broker function
         self.logger.info(("Client disconnected OK"))    
@@ -79,9 +86,43 @@ class MqttClient(object):
         if self.client.bad_connection_flag:
             self.client.loop_stop()
 
-        
+    def publish(self, topic, payload, qos, retain):
+        self.client.publish(topic, payload, qos, retain)
+        self.logger.info("published %s on topic %s with QoS %d. Retain %r", topic, payload, qos, retain)
+
+    def subscribe(self, topic, QoS):
+        self.client.subscribe(topic, QoS)
+
+    def getClient(self):
+        return self.client
+    
+    def on_log(self, client, userdata, level, buf):
+        self.logger.debug("mqtt client log: %s",buf)                                     
+                  
+    def _setup(self, interval, action, actionargs=()):                             
+        action(*actionargs)                                                       
+        self.scheduler.enter(interval, 1, self._setup,                             
+                        (interval, action, actionargs))                           
+    def _run_schedule(self):
+        self.scheduler.run()
+
+    def _set_parameters(self):
+      with open('config.json') as f:
+            data = json.load(f)
+            self.broker = data["broker"]
+            self.clientId = data["clientId"]
+            self.interval = data["autoupdateInterval"]
 
 
+
+#Application Sample
 myClient = MqttClient()
 myClient.connect()
-
+myClient.getClient().loop_start()
+myClient.subscribe("home/light", 0)
+myClient.publish("home/light", "OFF", 0, False)
+time.sleep(24) # wait
+myClient.connect()
+myClient.publish("home/light", "ON", 0, False)
+time.sleep(5) # wait
+myClient.getClient().loop_stop() #stop the loop
